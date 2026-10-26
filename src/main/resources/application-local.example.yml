@@ -1,0 +1,53 @@
+# 本地开发配置模板
+# 使用方法：复制为 application-local.yml，按需修改；application-local.yml 已被 .gitignore 忽略
+# 所有敏感信息（数据库密码、对象存储密钥）都通过环境变量注入，禁止写死在文件里
+
+normal-picture:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:3306}
+    database: ${DB_NAME:normal_picture_server}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:0}
+
+knife4j:
+  basic:
+    enable: false
+    username: admin
+    password: admin
+  enable: true
+  setting:
+    language: zh_cn
+
+storage:
+  # minio（本地） | cos（腾讯云）
+  type: minio
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    # public-url: ${MINIO_PUBLIC_URL:}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:smart-image}
+    auto-create-bucket: true
+    # 本地开发可开启公共读方便预览；生产环境请关闭并配合 CDN / 签名 URL
+    public-read: true
+    thumbnail-max-size: 512
+
+cos:
+  client:
+    # 示例：https://your-bucket-1250000000.cos.ap-chongqing.myqcloud.com
+    host: ${COS_HOST:}
+    secretId: ${COS_SECRET_ID:}
+    secretKey: ${COS_SECRET_KEY:}
+    region: ${COS_REGION:ap-chongqing}
+    bucket: ${COS_BUCKET:}
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl

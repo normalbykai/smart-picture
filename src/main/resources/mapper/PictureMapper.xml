@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.normal.picturebackend.infrastucture.mapper.PictureMapper">
+
+    <resultMap id="BaseResultMap" type="com.normal.picturebackend.domain.picture.entity.Picture">
+        <id property="id" column="id"/>
+        <result property="url" column="url"/>
+        <result property="name" column="name"/>
+        <result property="introduction" column="introduction"/>
+        <result property="category" column="category"/>
+        <result property="tags" column="tags"/>
+        <result property="picSize" column="picSize"/>
+        <result property="picWidth" column="picWidth"/>
+        <result property="picHeight" column="picHeight"/>
+        <result property="picScale" column="picScale"/>
+        <result property="picFormat" column="picFormat"/>
+        <result property="userId" column="userId"/>
+        <result property="createTime" column="createTime"/>
+        <result property="editTime" column="editTime"/>
+        <result property="updateTime" column="updateTime"/>
+        <result property="isDelete" column="isDelete"/>
+        <result property="reviewStatus" column="reviewStatus"/>
+        <result property="reviewMessage" column="reviewMessage"/>
+        <result property="reviewerId" column="reviewerId"/>
+        <result property="reviewTime" column="reviewTime"/>
+        <result property="thumbnailUrl" column="thumbnailUrl"/>
+        <result property="spaceId" column="spaceId"/>
+        <result property="originUrl" column="originUrl"/>
+        <result property="mainColor" column="mainColor"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id
+        ,url,name,introduction,category,tags,
+        picSize,picWidth,picHeight,picScale,picFormat,
+        userId,createTime,editTime,updateTime,isDelete,
+        reviewStatus,reviewMessage,reviewerId,reviewTime,thumbnailUrl,
+        spaceId,originUrl,mainColor
+    </sql>
+
+
+
+    <select id="getRankTopN" resultType="com.normal.picturebackend.domain.space.entity.Space">
+        SELECT id, spaceName, userId, totalSize
+        FROM space
+        ORDER BY totalSize DESC LIMIT #{topN};
+    </select>
+
+    <select id="getSpaceCategoryAnalyze"
+            resultType="com.normal.picturebackend.interfaces.vo.space.SpaceCategoryAnalyzeResponse">
+        SELECT COALESCE(category, '未定义') AS category, COUNT(*) AS count, SUM(picSize) AS totalSize
+        FROM picture
+        WHERE spaceId = #{spaceId}
+        GROUP BY COALESCE(category, '未定义');
+    </select>
+
+
+    <select id="getSpaceTagAnalyze"
+            resultType="com.normal.picturebackend.interfaces.vo.space.SpaceTagAnalyzeResponse">
+        SELECT
+            jt.tag as tag,
+            COUNT(*) AS count
+        FROM picture,
+            JSON_TABLE(
+                picture.tags,
+                '$[*]' COLUMNS(
+                    tag varchar(32) PATH '$'
+                )
+            ) AS jt
+        GROUP BY jt.tag
+    </select>
+    <select id="getSpaceSizeAnalyze"
+            resultType="com.normal.picturebackend.interfaces.vo.space.SpaceSizeAnalyzeResponse">
+        SELECT CASE
+            WHEN Picsize &lt; 100 * 1024 THEN '0-100KB'
+            WHEN Picsize >= 100 * 1024 AND Picsize &lt; 500 * 1024 THEN '100KB-500KB'
+            WHEN Picsize >= 500 * 1024 AND Picsize &lt; 1024 * 1024 THEN '500KB-1MB'
+            ELSE '>1MB'
+            END AS sizeRange,
+            COUNT(*) AS count
+        FROM picture
+        WHERE spaceId = #{spaceId}
+        GROUP BY sizeRange;
+    </select>
+    <select id="getAllUsageAnalyze"
+            resultType="com.normal.picturebackend.interfaces.vo.space.SpaceUsageAnalyzeResponse">
+
+        SELECT SUM(picSize) AS usedSize,
+               NULL         AS maxSize,
+               NULL         AS sizeUsageRatio,
+               COUNT(*)     AS usedCount,
+               NULL         AS maxCount,
+               NULL         AS countUsageRatio
+        FROM picture
+        where isDelete = 0;
+
+
+    </select>
+    <select id="getPublicUsageAnalyze"
+            resultType="com.normal.picturebackend.interfaces.vo.space.SpaceUsageAnalyzeResponse">
+        SELECT SUM(picSize) AS usedSize,
+               NULL         AS maxSize,
+               NULL         AS sizeUsageRatio,
+               COUNT(*)     AS usedCount,
+               NULL         AS maxCount,
+               NULL         AS countUsageRatio
+        FROM picture
+        WHERE isDelete = 0 and spaceId IS NULL;
+
+
+    </select>
+    <select id="getSPaceUserAnalyze"
+            resultType="com.normal.picturebackend.interfaces.vo.space.SpaceUserAnalyzeResponse">
+        <!-- language=SQL -->
+        SELECT
+            CASE
+                WHEN #{timeDimension} = 'day' THEN DATE_FORMAT(createTime, '%Y-%m-%d')
+                WHEN #{timeDimension} = 'week' THEN YEARWEEK(createTime)
+                WHEN #{timeDimension} = 'month' THEN DATE_FORMAT(createTime, '%Y-%m')
+            END AS period,
+            COUNT(*) AS count
+        FROM picture
+         WHERE spaceId = #{spaceId} and  userId = #{userId}
+        GROUP BY period
+        ORDER BY period ASC
+    </select>
+
+
+</mapper>

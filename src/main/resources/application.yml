@@ -1,0 +1,76 @@
+server:
+  port: 8333
+  servlet:
+    context-path: /api
+    session:
+      cookie:
+        # cookie 最大有效时间 30天过期
+        max-age: 2592000
+spring:
+  main:
+    # 允许开启循环依赖
+    allow-circular-references: true
+  application:
+    name: normal-picture-backend-ddd
+  profiles:
+    active: local
+  servlet:
+    multipart:
+      max-file-size: 30MB
+      max-request-size: 30MB
+  datasource:
+    driver-class-name: ${normal-picture.datasource.driver-class-name}
+    url: jdbc:mysql://${normal-picture.datasource.host}:${normal-picture.datasource.port}/${normal-picture.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&allowMultiQueries=true&useSSL=false&allowPublicKeyRetrieval=true&zeroDateTimeBehavior=convertToNull&transformedBitIsBoolean=true&tinyInt1isBit=false&allowLoadLocalInfile=true&allowLocalInfile=true&allowUrlInLocalInfile=true&allowPublicKeyRet
+    username: ${normal-picture.datasource.username}
+    password: ${normal-picture.datasource.password}
+  session:
+    redis:
+      namespace: "picture:session" #自定义在redis中存放的key
+      flush-mode: on_save # 每次保存或更新 session 立即将数据同步
+      save-mode: always #每次请求结束后保存 session
+    timeout: 2592000s # 30天过期
+  data:
+    redis:
+      host: ${normal-picture.redis.host}
+      port: ${normal-picture.redis.port}
+      password: ${normal-picture.redis.password}
+      database: ${normal-picture.redis.database}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    # 仅在开发环境开启 SQL 日志（默认走 slf4j，由日志框架统一控制输出）
+    log-impl: ${normal-picture.mybatis-plus.configuration.log-impl:org.apache.ibatis.logging.slf4j.Slf4jImpl}
+  global-config:
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+    enable-sql-runner: true # 开启sql运行器
+
+# 应用自定义配置
+app:
+  cors:
+    # 允许跨域的来源模式，多个用英文逗号分隔；生产环境请通过环境变量 CORS_ALLOWED_ORIGINS 覆盖，禁止使用 *
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+
+# 接口文档配置
+# springdoc-openapi项目配置
+#springdoc:
+#  swagger-ui:
+#    path: /swagger-ui.html
+#    tags-sorter: alpha
+#    operations-sorter: alpha
+#  api-docs:
+#    path: /v3/api-docs
+#  group-configs:
+#    - group: 'normal'
+#      paths-to-match: '/**'
+#      packages-to-scan: com.normal.picturebackend
+
+# satoken 权限认证配置
+sa-token:
+  timeout: 2592000 # 30天过期
+
+
+
