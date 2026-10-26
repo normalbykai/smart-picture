@@ -1,0 +1,23 @@
+# 根目录通用忽略规则
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 构建产物与依赖（子项目内还有各自的 .gitignore）
+target/
+dist/
+node_modules/
+
+# 日志与临时文件
+*.log
+logs/
+*.tmp
+.DS_Store
+Thumbs.db
+
+# 本地/生产环境配置（配置模板请提交）
+.env.local
+.env.*.local
+application-local.yml
+application-prod.yml
