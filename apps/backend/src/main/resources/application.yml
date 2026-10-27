@@ -54,7 +54,9 @@ ai:
     base-url: ${AI_SERVICE_BASE_URL:http://127.0.0.1:8334}
     api-key: ${AI_SERVICE_API_KEY:}
     connect-timeout-ms: ${AI_SERVICE_CONNECT_TIMEOUT_MS:3000}
-    read-timeout-ms: ${AI_SERVICE_READ_TIMEOUT_MS:10000}
+    read-timeout-ms: ${AI_SERVICE_READ_TIMEOUT_MS:100000}
+    minio-endpoint: ${AI_SERVICE_MINIO_ENDPOINT:}
+    image-url-expiry-seconds: ${AI_SERVICE_IMAGE_URL_EXPIRY_SECONDS:120}
 
 app:
   cors:

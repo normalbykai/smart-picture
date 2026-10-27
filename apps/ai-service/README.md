@@ -1,6 +1,6 @@
 # Smart Picture AI Service
 
-Python 3.11+ / FastAPI 内部服务，独立安装、运行和部署。当前仅提供服务基础设施，尚未接入模型，`capabilities` 返回空列表。
+Python 3.11+ / FastAPI 内部服务，独立安装、运行和部署。提供 DeepSeek 图片标题与标签分析；未配置模型密钥时仍可启动，分析接口返回 503，`capabilities` 返回空列表。
 
 ## 本地安装和启动
 
@@ -36,6 +36,7 @@ uv run uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8334 --relo
 | --- | --- | --- |
 | `GET /health` | 无 | 检查 HTTP 服务存活，不表示模型或外部依赖可用 |
 | `GET /api/v1/info` | `X-API-Key` | 获取服务版本与已实现能力，作为首次联调接口 |
+| `POST /api/v1/images/analyze` | `X-API-Key` | 读取 MinIO 签名图片，调用 DeepSeek 并返回标题和标签建议 |
 
 Spring Boot 使用独立配置保存 Base URL 与共享密钥，随每次内部请求发送 `X-API-Key`，可发送 `X-Request-ID` 串联日志。请求 ID 允许 1–64 位字母、数字、点、下划线和连字符；缺失或非法时服务生成新 ID。响应头和 JSON 中返回同一 ID。
 
@@ -83,9 +84,34 @@ pyproject.toml     # 依赖与检查工具配置
 uv.lock            # 可复现依赖版本
 ```
 
-后续 AI 接口加入受认证保护的 `internal_router`；按功能增加 schema，将用例编排放入 `app/services/`、模型厂商适配放入 `app/providers/`，有实际功能时再创建这些模块。模型 SDK 按选定厂商添加，模型密钥与服务共享密钥分开管理。
+AI 接口加入受认证保护的 `internal_router`；图片下载、预处理及 DeepSeek HTTP 调用位于 `app/services/image_analysis.py`，对外模型位于 `app/schemas.py`。模型密钥与服务共享密钥分开管理。
 
-Spring Boot 负责用户、空间权限、额度和业务结果入库；Python 负责 AI 执行，不直接修改现有业务表。图片通过受控对象地址传递。长任务应使用持久化任务状态和独立 worker/队列，避免把需要可靠执行的任务仅放在进程内后台任务中。第一版没有任务队列、数据库连接或模型推理端点。
+Spring Boot 负责用户、空间权限和业务结果入库；Python 负责 AI 执行，不直接修改现有业务表。图片通过受控对象地址传递。当前为同步分析，没有任务队列、数据库连接、结果缓存或按用户计费额度。
+
+## 图片智能分析配置
+
+在本应用 `.env` 中填写 `AI_SERVICE_DEEPSEEK_API_KEY` 后重启 Python。不要填写到 Java 配置或前端：
+
+```dotenv
+AI_SERVICE_DEEPSEEK_API_KEY=
+AI_SERVICE_DEEPSEEK_BASE_URL=https://api.deepseek.com
+AI_SERVICE_DEEPSEEK_MODEL=deepseek-flash
+AI_SERVICE_IMAGE_ALLOWED_BASE_URLS=["http://127.0.0.1:9000/smart-image/"]
+AI_SERVICE_IMAGE_MAX_BYTES=10485760
+AI_SERVICE_ANALYSIS_CONCURRENCY=2
+```
+
+接口请求为 `{"image_url":"Java生成的短期MinIO签名地址"}`，响应 `data` 为 `{"title":"夕阳下的海边","tags":["夕阳","海边"]}`。
+仅允许配置中明确的存储源和桶路径，要求携带签名；拒绝重定向、任意外部 URL、目录穿越和非图片内容。
+下载默认最多 10 MiB、总时限 20 秒。支持 JPEG、PNG、WebP，最多 2000 万像素、单边 8192 像素；按 EXIF 校正方向，缩放至最长边 1536，并转为 JPEG 去除元数据后通过 Base64 发送给模型。
+模型请求使用 JSON 输出模式并关闭深度思考，读取超时 60 秒，整次分析上限 90 秒；单进程最多 2 个并发分析，超出返回 429。
+不自动重试可能产生费用的生成请求。标题最多 60 字，标签 1–5 个、每个最多 12 字，去重并清理首尾空白；无效或截断输出返回 502，不伪造兜底结果。
+未配置模型密钥返回 503，图片不合规返回 413/422，模型限流或繁忙返回 429，下载或模型调用超时返回 504。上游原始错误、图片内容及签名地址不写入客户端响应或常规请求日志。
+`capabilities` 出现 `image-analysis` 表示已填写模型密钥，不表示已验证额度、模型权限或网络连通性。
+
+Java 与 Python 必须能访问签名时使用的 MinIO 地址；签名生成后不得改写域名。容器部署需将签名源和允许下载的桶路径同步改为内部可达地址。
+一键启动脚本会根据 Compose 端口及 `MINIO_BUCKET`（默认 `smart-image`）自动对齐这些配置；手动部署需自行配置。
+模型协议参考 [DeepSeek 视觉文档](https://api-docs.deepseek.com/guides/vision/) 和 [JSON 输出文档](https://api-docs.deepseek.com/guides/json_mode/)。
 
 ## 验证
 

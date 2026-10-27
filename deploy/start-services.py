@@ -44,6 +44,8 @@ def connection_environment(config, api_key):
     services = config["services"]
     mysql = services["mysql"]["environment"]
     minio = services["minio"]["environment"]
+    minio_endpoint = f"http://127.0.0.1:{host_port(services['minio'], 9000)}"
+    bucket = os.environ.get("MINIO_BUCKET", "smart-image")
     return {
         "DB_HOST": "127.0.0.1",
         "DB_PORT": str(host_port(services["mysql"], 3306)),
@@ -53,11 +55,16 @@ def connection_environment(config, api_key):
         "REDIS_HOST": "127.0.0.1",
         "REDIS_PORT": str(host_port(services["redis"], 6379)),
         "REDIS_PASSWORD": "",
-        "MINIO_ENDPOINT": f"http://127.0.0.1:{host_port(services['minio'], 9000)}",
+        "MINIO_ENDPOINT": minio_endpoint,
+        "MINIO_BUCKET": bucket,
         "MINIO_ACCESS_KEY": minio["MINIO_ROOT_USER"],
         "MINIO_SECRET_KEY": minio["MINIO_ROOT_PASSWORD"],
         "AI_SERVICE_API_KEY": api_key,
         "AI_SERVICE_BASE_URL": "http://127.0.0.1:8334",
+        "AI_SERVICE_MINIO_ENDPOINT": minio_endpoint,
+        "AI_SERVICE_IMAGE_ALLOWED_BASE_URLS": json.dumps(
+            [f"{minio_endpoint}/{bucket}/"]
+        ),
         "SERVER_PORT": "8333",
         "SERVER_SERVLET_CONTEXT_PATH": "/api",
     }
@@ -68,8 +75,14 @@ def prepare_configuration():
     if not env_file.exists():
         # Exclusive creation prevents overwriting a configuration created concurrently.
         with env_file.open("x", encoding="utf-8") as stream:
-            stream.write(f"AI_SERVICE_API_KEY={secrets.token_urlsafe(32)}\n")
-            stream.write("AI_SERVICE_DOCS_ENABLED=true\n")
+            template = (AI_ROOT / ".env.example").read_text("utf-8")
+            stream.write(
+                template.replace(
+                    "AI_SERVICE_API_KEY=\n",
+                    f"AI_SERVICE_API_KEY={secrets.token_urlsafe(32)}\n",
+                    1,
+                )
+            )
     api_key = os.environ.get("AI_SERVICE_API_KEY") or dotenv_values(env_file).get(
         "AI_SERVICE_API_KEY"
     )

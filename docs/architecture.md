@@ -18,7 +18,8 @@
 前端通过 Spring Boot 访问 AI 能力，Spring Boot 通过 HTTP 调用内部 FastAPI 服务。
 Java 负责认证授权、空间与图片业务、额度和业务结果入库；Python 负责 AI 执行及模型适配。
 Python 不直接修改 Java 业务表。服务间使用 `X-API-Key` 认证、`X-Request-ID` 追踪请求。
-当前仅提供服务骨架，模型能力列表为空；具体接口与运行方式见 [AI 服务说明](../apps/ai-service/README.md)。
+图片分析由 Java 校验编辑权限并签发 MinIO 临时 GET 地址，Python 下载并预处理后调用 DeepSeek，结果作为建议返回，不自动入库。
+未配置模型密钥时能力列表为空、分析返回明确配置错误；具体接口与运行方式见 [AI 服务说明](../apps/ai-service/README.md)。
 
 ## 前端文件归属
 

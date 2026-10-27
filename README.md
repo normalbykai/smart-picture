@@ -71,7 +71,7 @@ pnpm --dir apps/frontend dev
 独立的 Python 3.11+ / FastAPI 服务，使用 uv 安装锁定依赖，默认本地端口 `8334`。
 首次运行需要配置服务间共享密钥，然后在本地命令窗口启动。
 安装、启动及 Spring Boot HTTP 对接约定见 [AI 服务说明](apps/ai-service/README.md)。
-当前提供健康检查、服务信息、认证及请求追踪，尚未接入模型。
+提供健康检查、服务信息、认证、请求追踪及 DeepSeek 图片标题和标签分析；使用分析功能前需填写 Python 的模型密钥配置。
 
 ## 验证与构建
 

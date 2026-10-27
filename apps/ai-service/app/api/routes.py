@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, Request
 
 from app.core.security import require_api_key
-from app.schemas import ApiResponse, HealthData, ServiceInfo
+from app.schemas import (
+    ApiResponse,
+    HealthData,
+    ImageAnalysisRequest,
+    ImageAnalysisResult,
+    ServiceInfo,
+)
 
 health_router = APIRouter(tags=["health"])
 internal_router = APIRouter(
@@ -16,4 +22,16 @@ def health(request: Request) -> ApiResponse[HealthData]:
 
 @internal_router.get("/info", response_model=ApiResponse[ServiceInfo])
 def service_info(request: Request) -> ApiResponse[ServiceInfo]:
-    return ApiResponse(data=ServiceInfo(), request_id=request.state.request_id)
+    configured = bool(request.app.state.settings.deepseek_api_key.get_secret_value().strip())
+    return ApiResponse(
+        data=ServiceInfo(capabilities=["image-analysis"] if configured else []),
+        request_id=request.state.request_id,
+    )
+
+
+@internal_router.post("/images/analyze", response_model=ApiResponse[ImageAnalysisResult])
+async def analyze_image(
+    body: ImageAnalysisRequest, request: Request
+) -> ApiResponse[ImageAnalysisResult]:
+    result = await request.app.state.image_analysis.analyze(body.image_url)
+    return ApiResponse(data=result, request_id=request.state.request_id)

@@ -51,7 +51,15 @@ pnpm openapi        # 后端启动后更新 API 客户端
 环境配置见 `.env.development`、`.env.production`，个人覆盖配置使用 `.env.local` 或 `.env.<mode>.local`。
 OpenAPI 配置位于 `openapi.config.js`，生成代码输出至 `src/api/`。
 
-## 约定
+## 图片 AI 分析
+
+图片上传成功或进入图片编辑页后，点击“AI 智能分析”调用 `POST /picture/analyze`。
+弹窗预览建议名称和标签；“取消”保留表单，“确认填入”替换名称和标签，但不会保存。
+确认后可继续修改，点击“保存”才通过现有图片更新接口提交。简介和分类不受影响。
+分析期间防止重复请求；重新上传、裁剪或离开页面后，旧分析结果失效。
+模型未配置或调用失败时展示错误提示并保留表单。模型密钥只在 Python 服务配置，前端不接触密钥。
+
+## 代码约定
 
 - Vue 文件使用 PascalCase；路由页面统一使用 `XxxPage.vue`。
 - 页面放在 `pages/`，可复用组件按业务放入 `components/`，布局组件放入 `layouts/`。

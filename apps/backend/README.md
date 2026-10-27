@@ -59,7 +59,9 @@ Java 类采用 PascalCase、包名采用小写。修改包路径时同步修改 
 | `AI_SERVICE_BASE_URL` | `http://127.0.0.1:8334` | Python 服务源地址，不含 `/api/v1`、查询参数或凭证 |
 | `AI_SERVICE_API_KEY` | 空 | 与 Python 完全相同的共享密钥，至少 32 个非空白 ASCII 字符 |
 | `AI_SERVICE_CONNECT_TIMEOUT_MS` | `3000` | 正整数，连接超时 |
-| `AI_SERVICE_READ_TIMEOUT_MS` | `10000` | 正整数，请求读取超时 |
+| `AI_SERVICE_READ_TIMEOUT_MS` | `100000` | 正整数，覆盖 Python 最长 90 秒分析流程 |
+| `AI_SERVICE_MINIO_ENDPOINT` | 空 | 签名时使用的 MinIO 源地址；空值复用 `storage.minio.endpoint` |
+| `AI_SERVICE_IMAGE_URL_EXPIRY_SECONDS` | `120` | 图片 GET 签名有效期，允许 30–600 秒 |
 
 Python 的 `.env` 不会被 Java 自动读取。在启动 Spring Boot 的本地 PowerShell 窗口中设置上述环境变量，例如：
 
@@ -110,3 +112,34 @@ Remove-Item Env:AI_SERVICE_LIVE_TEST
 
 普通 `mvn test` 默认跳过真实服务测试；需要对接已运行的 Python 时，设置以上服务配置和
 `$env:AI_SERVICE_LIVE_TEST = 'true'`，再执行 `mvn "-Dtest=AiServiceLiveTest" test`。
+
+## 图片标题与标签分析
+
+登录后调用 `POST /api/picture/analyze`，请求体只需 `{"pictureId":"图片ID"}`，可传 `X-Request-ID`。
+公共图库仅作者或系统管理员可分析；空间图片按数据库中的所属空间校验 `picture:edit` 权限，团队浏览者不能分析。
+空间 ID、存储 URL 和角色均由服务端查询，不使用前端传入的同名字段决定权限。
+
+Java 优先选择原图 `originUrl`，缺失时使用 `url`，仅接受配置的 MinIO 桶中的对象。
+无论桶是否公共读，都重新签发短期 GET 地址；不会直接复用数据库中可能过期的签名。
+目前不支持 COS 或任意外部图片 URL，无法识别的存储会明确拒绝，不回退到当前存储。
+Python 直接从 MinIO 下载，Java 仅传签名 URL；签名不返回前端，也不写入分析结果。
+
+成功响应示例：
+
+```json
+{"code":0,"data":{"title":"夕阳下的海边","tags":["夕阳","海边"]},"message":"ok"}
+```
+
+接口只返回建议，不自动写数据库。前端用户确认后再使用现有图片编辑接口，将 `title` 映射为图片 `name`，并保存 `tags`。
+未配置 DeepSeek 密钥时返回业务错误 `50001` 和明确配置提示；密钥仅需填写 Python `.env` 中的 `AI_SERVICE_DEEPSEEK_API_KEY`。
+分析为同步调用，前端或网关请求超时应大于 Java 配置的读取超时。模型费用、账户额度和识别效果须在填写真实密钥后验证。
+
+真实 MinIO 下载验证（Windows、本地默认 MinIO 凭证、AI 服务 uv 环境已安装）：
+
+```powershell
+$env:AI_STORAGE_LIVE_TEST = 'true'
+mvn -f apps/backend/pom.xml "-Dtest=AiStorageLiveTest" test
+Remove-Item Env:AI_STORAGE_LIVE_TEST
+```
+
+该测试创建临时图片，通过生产签名器生成地址，再调用 Python 真实下载和预处理；完成后删除临时对象，不调用 DeepSeek。

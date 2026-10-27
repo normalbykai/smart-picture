@@ -11,8 +11,12 @@ from starlette.exceptions import HTTPException
 from app.api.routes import health_router, internal_router
 from app.core.config import Settings
 from app.schemas import ApiResponse
+from app.services.image_analysis import ImageAnalysisService
 
 logger = logging.getLogger("uvicorn.error")
+# HTTP client info/debug messages contain full URLs, including storage signatures.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
@@ -31,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if settings.docs_enabled else None,
     )
     app.state.settings = settings
+    app.state.image_analysis = ImageAnalysisService(settings)
 
     @app.middleware("http")
     async def trace_request(request: Request, call_next):

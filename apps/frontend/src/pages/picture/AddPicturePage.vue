@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import PictureUpload from '@/components/picture/PictureUpload.vue'
+import PictureAiAnalysis from '@/components/picture/PictureAiAnalysis.vue'
+import type { PictureAnalysisResult } from '@/api/pictureAi'
 import {computed, h, onMounted, reactive, ref, watchEffect} from 'vue'
 import {
   getPictureVoById,
@@ -39,6 +41,11 @@ const formData = reactive<API.PictureUpdateRequest>({
   category: '',
   tags: [],
 })
+
+const applyAiSuggestion = (result: PictureAnalysisResult) => {
+  formData.name = result.title
+  formData.tags = [...result.tags]
+}
 
 /**
  * 清空表单数据 图片数据
@@ -238,6 +245,8 @@ watchEffect(() => {
 
     <ImageCropper ref="imageCropperRef" :space="space" :picture="picture" :on-cropper-success="handleCropperSuccess" :space-id="spaceId" :image-url="picture?.url"  />
 
+    <PictureAiAnalysis v-if="picture" :picture="picture" @apply="applyAiSuggestion" />
+
     <a-form v-if="picture" layout="vertical" :model="formData" autocomplete="off" @finish="handleCommit">
       <a-form-item name="name" label="名称">
         <a-input v-model:value="formData.name" placeholder="请输入名称" allow-clear></a-input>
@@ -276,7 +285,7 @@ watchEffect(() => {
 
       <a-form-item>
         <a-button html-type="submit" type="primary" style="width: 100%; height: 50px"
-        >提交</a-button
+        >保存</a-button
         >
       </a-form-item>
     </a-form>

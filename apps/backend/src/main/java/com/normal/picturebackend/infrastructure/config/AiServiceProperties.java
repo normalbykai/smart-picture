@@ -2,6 +2,7 @@ package com.normal.picturebackend.infrastructure.config;
 
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -22,7 +23,12 @@ public class AiServiceProperties {
     @Min(1)
     private int connectTimeoutMs = 3000;
     @Min(1)
-    private int readTimeoutMs = 10000;
+    private int readTimeoutMs = 100000;
+    /** Python 可访问的 MinIO 签名源地址；空值使用 storage.minio.endpoint。 */
+    private String minioEndpoint = "";
+    @Min(30)
+    @Max(600)
+    private int imageUrlExpirySeconds = 120;
 
     @AssertTrue(message = "AI base URL must be an HTTP(S) origin without credentials, query or fragment")
     public boolean isValidBaseUrl() {

@@ -13,6 +13,7 @@
 需要已启动 Docker Desktop，并安装 Java 17+、Maven、uv，将命令加入 PATH。
 脚本依次启动 MySQL / Redis / MinIO、Python AI（8334）和 Spring Boot（8333），等待健康检查通过。
 它会自动使用 `deploy/infra.env`（如果存在），根据 Compose 实际配置给新启动的后端注入数据库、Redis、MinIO 连接参数。
+图片分析的签名源和 Python 下载允许地址同步使用 Compose 的 MinIO 端口，桶名由 `MINIO_BUCKET` 环境变量指定，默认为 `smart-image`。
 首次缺少配置时会创建被 Git 忽略的 `application-local.yml` 和包含随机 AI 密钥的 `.env`，已有文件不覆盖；两个应用使用同一密钥。
 进程环境中的 `AI_SERVICE_API_KEY` 优先于 `.env`。已有数据卷的账号密码不会被 Compose 初始化变量更新，需保持配置与实际数据一致。
 

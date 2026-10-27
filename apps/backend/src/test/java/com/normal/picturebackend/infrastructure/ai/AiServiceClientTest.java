@@ -101,6 +101,27 @@ class AiServiceClientTest {
         }
     }
 
+    @Test
+    void postsSignedUrlAndParsesAnalysis() {
+        server.expect(requestTo("http://127.0.0.1:8334/api/v1/images/analyze"))
+                .andExpect(method(org.springframework.http.HttpMethod.POST))
+                .andExpect(header("X-API-Key", KEY))
+                .andExpect(content().json("{\"image_url\":\"signed-url\"}"))
+                .andRespond(withSuccess("""
+                        {"code":0,"data":{"title":"海边","tags":["风景"]},"request_id":"java-test-001"}
+                        """, MediaType.APPLICATION_JSON));
+        assertEquals("海边", client.analyzeImage("signed-url", "java-test-001").title());
+        server.verify();
+    }
+
+    @Test
+    void rejectsInvalidAnalysisMetadata() {
+        server.expect(anything()).andRespond(withSuccess("""
+                {"code":0,"data":{"title":"标题","tags":[]},"request_id":"java-test-001"}
+                """, MediaType.APPLICATION_JSON));
+        assertThrows(BusinessException.class, () -> client.analyzeImage("signed-url", "java-test-001"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"ftp://localhost", "http://user:password@localhost",
             "http://localhost?key=secret", "http://localhost/path", "invalid"})
