@@ -8,11 +8,12 @@
 smart-picture/
 ├── apps/
 │   ├── backend/            # Spring Boot 后端（Maven）
+│   ├── ai-service/         # Python FastAPI 内部 AI 服务（uv）
 │   └── frontend/           # Vue 3 前端（pnpm + Vite）
 ├── database/
 │   └── schema.sql          # 数据库初始化脚本
 ├── deploy/
-│   └── docker-compose.minio.yml
+│   └── docker-compose.infra.yml  # MySQL / Redis / MinIO
 ├── docs/
 │   ├── architecture.md     # 目录职责、规范与迁移说明
 │   ├── maintenance.md      # 历史优化记录
@@ -22,18 +23,22 @@ smart-picture/
 
 ## 本地开发
 
-准备 Java 17+、Maven、Node.js 22、pnpm、MySQL 和 Redis。以下命令从仓库根目录执行。
+准备 Java 17+、Maven、Node.js 22、pnpm 和 Docker。以下命令从仓库根目录执行。
 
-### 1. 数据库与对象存储
+Windows 已安装 uv 时，可双击 `deploy/start-services.cmd` 一键启动基础服务、Spring Boot 和 Python AI 服务。
+脚本会跳过已就绪的应用，详情见 [一键启动说明](deploy/README.md)。前端仍按下方步骤单独启动。
 
-首次使用时，创建与后端配置一致的 `normal_picture` 数据库（utf8mb4），选中该数据库后，通过 MySQL 客户端执行 [database/schema.sql](database/schema.sql)。已有数据库不要重复初始化。
+### 1. 基础服务
+
+统一启动 MySQL、Redis 和 MinIO。新 MySQL 数据卷首次启动时自动创建 `normal_picture_server` 数据库并执行 [database/schema.sql](database/schema.sql)，已有数据库不要重复初始化。
 
 ```powershell
-docker compose -f deploy/docker-compose.minio.yml up -d
+docker compose -f deploy/docker-compose.infra.yml up -d --wait --wait-timeout 180
 ```
 
-MinIO S3 接口为 `http://127.0.0.1:9000`，控制台为 `http://127.0.0.1:9001`；本地默认账号和密码为 `minioadmin`。
+MySQL 默认宿主机端口为 `3307`，Redis 为 `6379`。MinIO S3 接口为 `http://127.0.0.1:9000`，控制台为 `http://127.0.0.1:9001`；本地默认账号和密码为 `minioadmin`。
 Compose 保留原项目名 `smart-picutre`，避免移动文件后创建新的数据卷。此前使用自定义 `-p` 项目名的环境，请继续传入原值。
+后端连接变量、默认凭证及自定义配置见 [基础服务说明](deploy/README.md)。使用本机已有数据库时无需启动 Compose 中的 MySQL，并自行配置相应连接参数。
 
 ### 2. 后端
 
@@ -60,12 +65,21 @@ pnpm --dir apps/frontend dev
 
 详情见 [前端说明](apps/frontend/README.md)。
 
+### 4. AI 服务
+
+独立的 Python 3.11+ / FastAPI 服务，使用 uv 安装锁定依赖，默认本地端口 `8334`。
+首次运行需要配置服务间共享密钥，然后在本地命令窗口启动。
+安装、启动及 Spring Boot HTTP 对接约定见 [AI 服务说明](apps/ai-service/README.md)。
+当前提供健康检查、服务信息、认证及请求追踪，尚未接入模型。
+
 ## 验证与构建
 
 ```powershell
 mvn -f apps/backend/pom.xml clean test
 mvn -f apps/backend/pom.xml package
 pnpm --dir apps/frontend build
+uv run --project apps/ai-service --locked pytest apps/ai-service/tests
+uv run --project apps/ai-service --locked ruff check apps/ai-service
 ```
 
 后端产物位于 `apps/backend/target/`，前端产物位于 `apps/frontend/dist/`。

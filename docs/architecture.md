@@ -6,11 +6,19 @@
 | --- | --- |
 | `apps/frontend` | 前端源码、依赖锁文件、Vite / TypeScript / ESLint 配置 |
 | `apps/backend` | 后端源码、测试、资源文件、Maven 配置 |
+| `apps/ai-service` | FastAPI 内部 AI 服务、Python 配置、uv 依赖锁文件与测试 |
 | `database` | 数据库初始化与后续数据库变更脚本 |
 | `deploy` | Docker Compose 等运行基础设施配置 |
 | `docs` | 架构、开发维护说明与历史分析 |
 
-根目录保留项目入口和仓库级规范，应用专用配置随应用维护。两个应用仍独立构建，不额外引入工作区管理工具。
+根目录保留项目入口和仓库级规范，应用专用配置随应用维护。各应用独立安装、构建和部署，不额外引入工作区管理工具。
+
+## AI 服务边界
+
+前端通过 Spring Boot 访问 AI 能力，Spring Boot 通过 HTTP 调用内部 FastAPI 服务。
+Java 负责认证授权、空间与图片业务、额度和业务结果入库；Python 负责 AI 执行及模型适配。
+Python 不直接修改 Java 业务表。服务间使用 `X-API-Key` 认证、`X-Request-ID` 追踪请求。
+当前仅提供服务骨架，模型能力列表为空；具体接口与运行方式见 [AI 服务说明](../apps/ai-service/README.md)。
 
 ## 前端文件归属
 
@@ -39,7 +47,7 @@
 | `smart-team-frontend/` | `apps/frontend/` |
 | `smart-teamwork-platform/` | `apps/backend/` |
 | 根目录两份分析文档 | `docs/maintenance.md`、`docs/roadmap.md` |
-| 根目录 MinIO Compose | `deploy/docker-compose.minio.yml` |
+| 根目录 MinIO Compose | `deploy/docker-compose.infra.yml`（统一基础服务） |
 | 后端 `sql/create_table_sql.sql` | `database/schema.sql` |
 | 前端 `src/page/`、`src/views/` | 统一为 `src/pages/` |
 | `PicutreSearchForm.vue` | `components/picture/PictureSearchForm.vue` |
@@ -58,6 +66,8 @@ Compose 显式保留 `smart-picutre` 项目名；曾使用自定义 `-p` 的环�
 ```powershell
 mvn -f apps/backend/pom.xml clean test
 pnpm --dir apps/frontend build
+uv run --project apps/ai-service --locked pytest apps/ai-service/tests
+uv run --project apps/ai-service --locked ruff check apps/ai-service
 git diff --check
 ```
 

@@ -91,7 +91,7 @@ Sa-Token 注解鉴权   事务模板           MyBatis-Plus
 
 ```bash
 # 1. 对象存储
-docker compose -f deploy/docker-compose.minio.yml up -d
+docker compose -f deploy/docker-compose.infra.yml up -d --wait minio
 
 # 2. 后端（MySQL / Redis 需自行准备）
 cd apps/backend
@@ -184,7 +184,7 @@ pnpm dev
 | --- | --- | --- |
 | E1 | 没有 Git 仓库 | `git status` 报 `not a git repository`；没有历史、无法回滚、无法协作 |
 | E2 | 没有任何测试 | 后端无 `src/test`；前端无测试框架与脚本 |
-| E3 | 无 CI/CD、无 Dockerfile、无数据库迁移 | 只有 `docker-compose.minio.yml`；SQL 用 `ALTER TABLE` 手工追加，不可重复执行 |
+| E3 | 无 CI/CD、无 Dockerfile、无数据库迁移 | 基础服务使用 `docker-compose.infra.yml`；SQL 用 `ALTER TABLE` 手工追加，不可重复执行 |
 | E4 | 前端类型检查失败 | `pnpm type-check` 实测 **20 个错误**（`LocationQueryValue` 未收窄、`possibly null`、`uploadValid` 类型写成 boolean 等） |
 | E5 | 脚本拼写与语义错误 | `package.json`：`noraml-build-production`、`noraml-build-dev`；`normal-production` 实际执行 `vite dev` |
 | E6 | 生产环境配置缺失 | README 宣称有 `.env.production`，实际不存在且被 `.gitignore` 忽略；`VITE_SECRET_KEY` 把 AES 密钥放在客户端 |

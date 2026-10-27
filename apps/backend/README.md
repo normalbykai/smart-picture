@@ -47,3 +47,66 @@ mvn spring-boot:run "-Dspring-boot.run.profiles=local"
 
 Java 类采用 PascalCase、包名采用小写。修改包路径时同步修改 import、MapperScan、XML namespace 与测试包。
 仓库规范见 [目录与开发规范](../../docs/architecture.md)。
+
+## AI 服务对接
+
+`infrastructure/ai/AiServiceClient` 使用 Spring `RestClient` 调用独立 Python 服务的 `GET /api/v1/info`。
+业务服务通过构造器注入 `AiServiceClient`，调用 `getInfo()` 或 `getInfo(requestId)`，返回 `AiServiceInfo`。
+无需增加 HTTP 客户端依赖。请求自动携带 `X-API-Key` 与规范化的 `X-Request-ID`，禁止自动重定向，不做自动重试。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AI_SERVICE_BASE_URL` | `http://127.0.0.1:8334` | Python 服务源地址，不含 `/api/v1`、查询参数或凭证 |
+| `AI_SERVICE_API_KEY` | 空 | 与 Python 完全相同的共享密钥，至少 32 个非空白 ASCII 字符 |
+| `AI_SERVICE_CONNECT_TIMEOUT_MS` | `3000` | 正整数，连接超时 |
+| `AI_SERVICE_READ_TIMEOUT_MS` | `10000` | 正整数，请求读取超时 |
+
+Python 的 `.env` 不会被 Java 自动读取。在启动 Spring Boot 的本地 PowerShell 窗口中设置上述环境变量，例如：
+
+```powershell
+$env:AI_SERVICE_BASE_URL = 'http://127.0.0.1:8334'
+$env:AI_SERVICE_API_KEY = '<same-key-as-python>'
+mvn spring-boot:run "-Dspring-boot.run.profiles=local"
+```
+
+没有配置密钥时，原有业务可正常启动，调用 AI 接口会返回明确配置错误。
+连接失败、超时、Python 非 2xx 状态、业务失败以及不合规响应统一转换为 `BusinessException(OPERATION_ERROR)`。
+不向前端暴露 Python 原始错误体或密钥。沿用现有全局异常处理约定：业务失败的响应体 `code=50001`，HTTP 状态可能仍为 200。
+
+完整业务服务运行并以管理员登录后，可访问 **`GET /api/ai/info`**。
+它使用现有 `@AuthCheck` 管理员鉴权，与直接访问 Python 的共享密钥认证相互独立。
+可传入 `X-Request-ID`，响应头会返回实际使用的请求 ID，两端日志使用同一 ID。
+成功响应示例：
+
+```json
+{"code":0,"data":{"name":"smart-picture-ai-service","version":"0.1.0","capabilities":[]},"message":"ok"}
+```
+
+### 独立验证调用链
+
+准备两个本地 PowerShell 命令窗口。窗口一从仓库根目录执行：
+
+```powershell
+Set-Location apps/ai-service
+uv sync --locked
+$env:AI_SERVICE_API_KEY = '<your-private-shared-key-at-least-32-characters>'
+uv run --locked uvicorn app.main:create_app --factory --host 127.0.0.1 --port 18334 --no-access-log
+```
+
+窗口二从仓库根目录执行，密钥必须与窗口一完全相同：
+
+```powershell
+$env:AI_SERVICE_API_KEY = '<same-key-as-window-one>'
+$env:AI_SERVICE_BASE_URL = 'http://127.0.0.1:18334'
+$env:AI_SERVICE_LIVE_TEST = 'true'
+mvn -f apps/backend/pom.xml "-Dtest=AiServiceLiveTest" test
+Remove-Item Env:AI_SERVICE_LIVE_TEST
+```
+
+`AiServiceLiveTest` 以隔离的 Spring Boot 上下文加载生产客户端配置，通过真实 HTTP 调用 Python。
+不需要 MySQL、Redis、MinIO，也不修改 `.env` 或 `application-local.yml`。测试完成后在窗口一按 Ctrl+C 停止临时服务。
+两端日志中应出现 `springboot-live-info-001`，且 Maven 报告该测试通过。
+该测试验证 Java 客户端到 Python 的链路，不覆盖完整业务 Web 服务或管理员登录链路。
+
+普通 `mvn test` 默认跳过真实服务测试；需要对接已运行的 Python 时，设置以上服务配置和
+`$env:AI_SERVICE_LIVE_TEST = 'true'`，再执行 `mvn "-Dtest=AiServiceLiveTest" test`。
