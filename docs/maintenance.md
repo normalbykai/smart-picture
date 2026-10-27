@@ -1,0 +1,208 @@
+# 本次优化说明（P0 修复 + 架构收口）
+
+> 执行时间：2026-10-21
+> 范围：`apps/backend`（后端）+ `apps/frontend`（前端）
+> 目标：解决分析报告中的 P0 问题，完成架构"收口"，并保持项目可编译、可构建、可测试
+
+---
+
+## 一、结果概览
+
+| 项目 | 优化前 | 优化后 |
+| --- | --- | --- |
+| 后端编译 | 通过 | **通过**（`mvn test`，167 个源文件） |
+| 后端测试 | 0 个 | **8 个单元测试全部通过** |
+| 前端类型检查 | 失败（`vue-tsc` 报错） | **0 错误** |
+| 前端构建 | 未验证 | **构建成功**（已拆分 vendor chunk） |
+| P0 安全问题 | 10 项 | **全部处理** |
+| 领域层依赖 application | 3 处 | **0 处** |
+
+> 说明：本次未做运行期联调（需要本地 MySQL / Redis / MinIO），验证以编译、单元测试、类型检查和生产构建为准。
+
+---
+
+## 二、P0 安全修复明细
+
+| 编号 | 原问题 | 本次改动 | 主要文件 |
+| --- | --- | --- | --- |
+| S1 | 云端密钥明文写在配置里 | 配置改为 `${ENV:默认值}`；新增 `application-local.example.yml`；`application-local.yml` 加入 `.gitignore` | `application-local.yml`、`application.yml`、`.gitignore` |
+| S2 | `/user/get` 无鉴权且返回密码哈希 | 增加管理员校验；返回前清空 `userPassword`；`/user/get/vo` 仍保持脱敏 | `UserController` |
+| S3 | 空间分析权限判断写反、校验被注释 | 恢复范围校验：全空间/公共图库仅管理员；修正 `isNotAdmin()` 反向判断 | `SpaceAnalyzeApplicationServiceImpl` |
+| S4 | 空权限上下文 = 管理员权限 | 改为返回「公共图库最小权限（查看 + 上传）」；修复 `case "space"` 缺少 `break`；团队空间类型判空 | `StpInterfaceImpl` |
+| S5 | `sortField` 直接拼 SQL | 图片、空间、用户三处排序字段走白名单，非法字段回退默认并告警 | `SortFieldUtils`、三个 DomainService |
+| S6 | URL 上传 SSRF、下载无上限 | 协议白名单 + DNS 解析内网地址拦截 + 每跳重定向校验 + 流式下载 2MB 截断 | `UrlSecurityValidator`、`PictureUrlManager` |
+| S7 | 只校验后缀；MinIO 公共读 | 增加文件头魔数、扩展名一致性、ImageIO 解码、尺寸上限；`publicRead` 默认改为 `false`（本地配置显式开启） | `ImageFileValidator`、`PictureFileManager`、`StorageProperties` |
+| S8 | CORS 任意源 + Cookie | 改为可配置来源白名单，默认仅 localhost / 127.0.0.1 | `CorsConfig`、`application.yml` |
+| S9 | 密码 MD5 固定盐、Session 存整个 User | 新密码使用 BCrypt；登录兼容旧 MD5 并自动升级；Session/Sa-Token 只存 userId；登出双清 | `PasswordService`、`UserDomainServiceImpl` |
+| S10 | 删除不清理对象存储、额度非原子、编辑丢失 spaceId | 事务提交后清理对象存储；额度改为单条条件 UPDATE；编辑未传 spaceId 时复用原空间；删除空间级联清理图片/成员/文件 | `PictureApplicationServiceImpl`、`SpaceQuotaService`、`SpaceRepository`、`SpaceApplicationServiceImpl` |
+
+---
+
+## 三、架构收口
+
+### 1. 去掉重复实现，明确职责
+
+- 上传、批量上传、批量编辑等「用例编排」只保留在 **应用层**；
+- 领域层只保留图片规则：查询条件、审核、编辑、颜色检索、缓存读取；
+- 删除了 `PictureDomainServiceImpl` 中重复的上传与批量逻辑约 200 行。
+
+### 2. 领域层不再依赖应用层
+
+- 新增 `SpaceQuotaService`（domain）与 `SpaceRepository.applyQuotaChange`（原子额度变更）；
+- `PictureDomainServiceImpl` 改用 `SpaceRepository`，不再注入 `SpaceApplicationService`；
+- `SpaceUserAuthManager`、`StpInterfaceImpl`、`WsHandshakeInterceptor` 改用 domain service；
+- 全项目 `domain` 包对 `application` 包的 import 数：**0**。
+
+### 3. 额度变更原子化
+
+```sql
+UPDATE space
+SET totalSize  = GREATEST(totalSize + ?, 0),
+    totalCount = GREATEST(totalCount + ?, 0)
+WHERE id = ?
+  AND (增量 <= 0 OR totalSize + 增量 <= maxSize)
+  AND (增量 <= 0 OR totalCount + 增量 <= maxCount)
+```
+
+- 新增图片：size + 1 张，条件不满足直接失败；
+- 删除图片：扣减并保证不为负；
+- 替换图片：只调整大小差额；
+- 空间被并发删除时，释放额度只记录日志，不阻断删除。
+
+### 4. 对象存储清理放到事务提交后
+
+- 图片删除/替换、空间删除都会在数据库事务提交后清理对象文件；
+- 清理通过 URL 反查所属存储（COS / MinIO），**无法识别归属时跳过**，避免把对象键误删到当前存储；
+- 删除失败只记录日志，不影响主流程。
+
+### 5. 缓存与查询
+
+- 写操作后主动失效本地缓存 + Redis 图片列表缓存（统一使用 `PictureCacheConstant` 前缀）；
+- Redis 反序列化改用 `TypeReference<Page<PictureVO>>`，避免 `records` 退化为 `JSONObject`；
+- 空间查询显式设置 `nullSpaceId`，修复「传了 spaceId 却查出空列表」的问题；
+- 公共图库匿名访问：`/picture/get/vo` 未登录时按游客处理，空间图片仍要求登录与权限。
+
+### 6. 其他收口
+
+- 空间创建锁从 `String.intern()` 改为按用户维度的本地锁对象（多实例仍需唯一索引/分布式锁）；
+- `PageRequest` 增加默认分页（1 / 10），避免前端漏传导致 pageSize=0；
+- 上传事务失败时清理刚写入对象存储的新文件，避免产生孤儿对象；
+- 上传接口增加**服务层空间权限兜底**：multipart 表单在过滤器阶段可能拿不到 spaceId，不能只依赖注解上下文，否则可越权上传到任意空间；
+- 权限上下文把 `/spaceUser/*` 的 id 解析为 spaceUserId，修复「空间管理员无法编辑/删除成员」的问题；
+- 删除无用的 `FileTestController`、`SpaceAnalyzeSqlApplicationServiceImpl`、`tagsToOptionsObj`、`fetchData2` 等死代码；
+- 修正脚本拼写、批量上传数量校验、空间名称空指针、成员删除条件写反等 P1 问题；
+- 删除前端多余的 `package-lock.json`，统一使用 `pnpm-lock.yaml`。
+
+---
+
+## 四、前端与工程化
+
+| 类别 | 改动 |
+| --- | --- |
+| 类型安全 | `vue-tsc` 从报错到 0 错误；修复 query 参数类型、`PictureVO`、权限常量、上传参数类型 |
+| 第三方类型 | 新增 `src/types/vue-cropper.d.ts` 与 `src/types/axios.d.ts`，解决包内类型与 `requestType` 扩展问题 |
+| 安全 | 删除客户端可逆加密的「记住密码」，只记住账号；移除 `crypto-js` 依赖与 `VITE_SECRET_KEY` |
+| 性能 | 首页/空间列表优先使用 `thumbnailUrl`；Vite 拆分 `vue / antd / echarts` vendor chunk |
+| 配置 | 新增 `.env.production`（`/api` + 相对 WebSocket 地址，自动拼接 `ws/wss`） |
+| 脚本 | `normal-dev`/`noraml-*` 更正为 `dev:development`、`build:production` 等 |
+| 清理 | 删除无用 API 导入、`console.log`、未使用变量 |
+
+---
+
+## 五、如何运行
+
+### 1. 后端
+
+```bash
+cd apps/backend
+
+# 1) 复制配置模板（application-local.yml 已被 gitignore）
+cp src/main/resources/application-local.example.yml src/main/resources/application-local.yml
+
+# 2) 按需设置环境变量（至少确认数据库、Redis）
+export DB_PASSWORD=your_password
+export REDIS_PASSWORD=your_password
+
+# 3) 启动
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+> 如果之前把真实 COS 密钥写入过本地配置或提交过版本库，请先到腾讯云控制台轮换。
+
+### 2. 前端
+
+```bash
+cd apps/frontend
+pnpm install
+pnpm dev              # 开发
+pnpm type-check       # 类型检查
+pnpm build            # 类型检查 + 生产构建
+```
+
+开发环境仍使用 `.env.development` 中的 `http://localhost:8333/api`；
+生产构建使用 `.env.production` 的 `/api`，需要 Nginx 将 `/api` 反向代理到后端，
+并为 `/api/ws/picture/edit` 配置 WebSocket upgrade。
+
+### 3. 数据库
+
+本次**没有修改表结构**，现有 `database/schema.sql` 可以直接使用。
+旧账号的 MD5 密码会在下一次登录成功后自动升级为 BCrypt，无需手工迁移。
+
+---
+
+## 六、行为变化（升级注意）
+
+1. **密码哈希**：新注册用户使用 BCrypt；旧 MD5 用户首次登录自动升级。
+2. **登出**：现在会同时清理 Session 与 Sa-Token，旧 token 立即失效。
+3. **未登录访问图片详情**：公共图库可以匿名查看；空间图片仍要求登录与查看权限。
+4. **MinIO 公共读**：`publicRead` 代码默认 `false`；`application-local.yml` 中显式 `true`，本地开发不受影响。生产环境建议关闭并配合 CDN/签名 URL。
+5. **空间删除**：会级联删除空间内图片、成员关联，并清理对象存储文件；空空间也可以正常删除。
+6. **编辑图片**：未传 `spaceId` 时沿用原空间，不再把图片移动到公共图库。
+7. **排序字段**：非法/未知字段回退到 `createTime`，不再拼接到 SQL。
+8. **分页**：未传分页参数时默认第 1 页、每页 10 条。
+9. **批量上传**：数量限制为 1–20，单张失败只记录日志，不影响其他图片。
+
+---
+
+## 七、验证记录
+
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端单元测试 | `mvn -B test` | **BUILD SUCCESS，8 个测试通过** |
+| 前端类型检查 | `pnpm type-check` | **0 错误** |
+| 前端生产构建 | `pnpm build` | **构建成功** |
+| 领域层依赖检查 | 搜索 `domain` 包 import `application` | **0 处** |
+
+测试覆盖：
+
+- `PasswordServiceTest`：BCrypt 随机盐、旧 MD5 兼容、错误密码拒绝；
+- `SecurityUtilsTest`：排序白名单、`asc/ascend` 解析、内网/回环/云元数据地址拦截、非法协议拦截。
+
+---
+
+## 八、下一阶段建议（未在本次范围）
+
+1. **集成测试**：用 Testcontainers 覆盖「登录 → 越权 → 上传配额 → 删除清理 → 空间成员」权限矩阵。
+2. **上传直传**：后端签发 presigned PUT，前端直传对象存储，避免后端中转大文件。
+3. **图片处理服务**：独立 worker 生成多档缩略图、WebP/AVIF、blurhash、EXIF。
+4. **WebSocket 多实例**：用 Redis Pub/Sub 替换单机内存会话。
+5. **数据库迁移**：引入 Flyway，把当前手工 `ALTER TABLE` 改为版本化脚本。
+6. **可观测性**：Actuator + Micrometer + Prometheus + traceId + 结构化日志。
+7. **部署**：Docker Compose 全栈（MySQL / Redis / MinIO / 后端 / Nginx）与 CI。
+8. **AI 能力**：自动打标、CLIP 向量检索、以图搜图、pHash 去重、内容审核。
+
+---
+
+## 九、本次新增/重点文件索引
+
+| 类型 | 文件 |
+| --- | --- |
+| 密码安全 | `apps/backend/src/main/java/com/normal/picturebackend/infrastructure/security/PasswordService.java` |
+| 图片内容校验 | `apps/backend/src/main/java/com/normal/picturebackend/infrastructure/utils/ImageFileValidator.java` |
+| SSRF 校验 | `apps/backend/src/main/java/com/normal/picturebackend/infrastructure/utils/UrlSecurityValidator.java` |
+| 排序白名单 | `apps/backend/src/main/java/com/normal/picturebackend/infrastructure/utils/SortFieldUtils.java` |
+| 额度领域服务 | `apps/backend/src/main/java/com/normal/picturebackend/domain/space/service/SpaceQuotaService.java` |
+| 额度原子更新 | `apps/backend/src/main/java/com/normal/picturebackend/infrastructure/repository/SpaceRepositoryImpl.java` |
+| 配置模板 | `apps/backend/src/main/resources/application-local.example.yml` |
+| 前端类型声明 | `apps/frontend/src/types/vue-cropper.d.ts`、`apps/frontend/src/types/axios.d.ts` |
+| 生产配置 | `apps/frontend/.env.production` |
