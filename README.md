@@ -27,6 +27,7 @@ smart-picture/
 
 Windows 已安装 uv 时，可双击 `deploy/start-services.cmd` 一键启动基础服务、Spring Boot 和 Python AI 服务。
 脚本会跳过已就绪的应用，详情见 [一键启动说明](deploy/README.md)。前端仍按下方步骤单独启动。
+使用 `deploy/stop-services.cmd` 可统一停止这五个服务，保留容器和数据卷。
 
 ### 1. 基础服务
 

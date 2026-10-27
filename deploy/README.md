@@ -24,6 +24,26 @@
 
 入口 CMD 调用 `start-services.py` 完成配置读取和启动检查，Python 运行环境由 AI 服务的 uv 锁文件提供。
 
+## 一键停止全部服务（Windows）
+
+等待启动完成后，双击 `deploy/stop-services.cmd`，或从仓库根目录执行：
+
+```powershell
+.\deploy\stop-services.cmd
+# 无暂停模式
+.\deploy\stop-services.cmd --no-pause
+```
+
+脚本先停止 Spring Boot（8333），再停止 Python AI（8334），最后执行 Compose `stop` 停止 MySQL、Redis、MinIO。
+保留容器、网络、数据库、Redis 持久化数据和 MinIO 对象卷，不执行 `down`、删除卷或清空数据。
+应用进程使用 Windows `Stop-Process` 结束，可能中断正在处理的请求，请在没有业务任务执行时停止。
+已停止的服务会跳过，再次启动仍使用 `start-services.cmd`。
+
+支持本项目一键启动器启动的应用：核对 Python 虚拟环境路径、Java 主类与 Maven 项目路径，并在结束前核验进程创建时间。
+如果端口属于其他项目、IDE 启动方式无法核验或进程信息不可读取，脚本拒绝停止，并保留基础服务。
+需保持 Docker Desktop 运行；如果中途失败，已完成的停止操作不会回滚。
+停止入口与启动入口一样使用 uv 提供 Python 运行环境，不需要配置 AI 密钥。
+
 `docker-compose.infra.yml` 统一管理 MySQL、Redis 和 MinIO。需要 Docker Engine / Docker Desktop（Linux 容器）与支持 `--wait` 的 Docker Compose。
 所有命令从仓库根目录执行；配置用于本地开发，端口仅绑定 `127.0.0.1`。
 
